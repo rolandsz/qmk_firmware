@@ -15,6 +15,7 @@
  */
 
 #include QMK_KEYBOARD_H
+#include <lib/lib8tion/lib8tion.h>
 
 enum layers{
     MAC_BASE,
@@ -51,6 +52,21 @@ key_combination_t key_comb_list[2] = {
 
 static uint8_t mac_keycode[4] = { KC_LOPT, KC_ROPT, KC_LCMD, KC_RCMD };
 
+typedef enum {
+    BL_STATE_DISABLED,
+    BL_STATE_ON,
+    BL_STATE_OFF,
+    BL_STATE_TURNING_ON,
+    BL_STATE_TURNING_OFF
+} backlight_state_t;
+
+static backlight_state_t backlight_state = BL_STATE_ON;
+static uint16_t backlight_idle_timer = 0;
+static uint8_t backlight_desired_brightness = RGB_MATRIX_STARTUP_VAL;
+
+#define BACKLIGHT_TIMEOUT 30000
+#define BACKLIGHT_TRANSITION_SPEED 3
+
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [MAC_BASE] = LAYOUT_ansi_82(
         KC_ESC,   KC_BRID,  KC_BRIU,  KC_MCTL,  KC_LPAD,  RGB_VAD,  RGB_VAI,  KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,  KC_VOLD,   KC_VOLU,  KC_DEL,             KC_MUTE,
@@ -86,6 +102,17 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    switch (backlight_state) {
+        case BL_STATE_OFF:
+            backlight_state = BL_STATE_TURNING_ON;
+            break;
+        case BL_STATE_ON:
+            backlight_idle_timer = timer_read();
+            break;
+        default:
+            break;
+    }
+
     switch (keycode) {
         case KC_MISSION_CONTROL:
             if (record->event.pressed) {
@@ -123,7 +150,54 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 }
             }
             return false;  // Skip all further processing of this key
+        case RGB_TOG:
+            if (!record->event.pressed) {
+                if (backlight_state == BL_STATE_DISABLED) {
+                    backlight_state = BL_STATE_TURNING_ON;
+                    rgb_matrix_enable();
+                } else if (backlight_state == BL_STATE_ON || backlight_state == BL_STATE_OFF) {
+                    backlight_state = BL_STATE_DISABLED;
+                    rgb_matrix_disable();
+                }
+            }
+            return false;  // Skip all further processing of this key
         default:
             return true;   // Process all other keycodes normally
+    }
+}
+
+void matrix_scan_user(void) {
+    switch (backlight_state) {
+        case BL_STATE_TURNING_ON: {
+            uint8_t current_value = rgb_matrix_get_val();
+
+            if (current_value < backlight_desired_brightness) {
+                rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(), rgb_matrix_get_sat(), qadd8(current_value, BACKLIGHT_TRANSITION_SPEED));
+            } else {
+                backlight_state = BL_STATE_ON;
+                backlight_idle_timer = timer_read();
+            }
+            break;
+        }
+        case BL_STATE_ON: {
+            backlight_desired_brightness = rgb_matrix_get_val();
+
+            if (timer_elapsed(backlight_idle_timer) > BACKLIGHT_TIMEOUT) {
+                backlight_state = BL_STATE_TURNING_OFF;
+            }
+            break;
+        }
+        case BL_STATE_TURNING_OFF: {
+            uint8_t current_value = rgb_matrix_get_val();
+
+            if (current_value > 0) {
+                rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(), rgb_matrix_get_sat(), qsub8(current_value, BACKLIGHT_TRANSITION_SPEED));
+            } else {
+                backlight_state = BL_STATE_OFF;
+            }
+            break;
+        }
+        default:
+            break;
     }
 }
