@@ -57,7 +57,8 @@ typedef enum {
     BL_STATE_ON,
     BL_STATE_OFF,
     BL_STATE_TURNING_ON,
-    BL_STATE_TURNING_OFF
+    BL_STATE_TURNING_OFF,
+    BL_STATE_DISABLING,
 } backlight_state_t;
 
 static backlight_state_t backlight_state = BL_STATE_ON;
@@ -152,12 +153,17 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             return false;  // Skip all further processing of this key
         case RGB_TOG:
             if (!record->event.pressed) {
-                if (backlight_state == BL_STATE_DISABLED) {
-                    backlight_state = BL_STATE_TURNING_ON;
-                    rgb_matrix_enable();
-                } else if (backlight_state == BL_STATE_ON || backlight_state == BL_STATE_OFF) {
-                    backlight_state = BL_STATE_DISABLED;
-                    rgb_matrix_disable();
+                switch (backlight_state) {
+                    case BL_STATE_DISABLED:
+                        backlight_state = BL_STATE_TURNING_ON;
+                        rgb_matrix_enable();
+                        break;
+                    case BL_STATE_ON:
+                    case BL_STATE_OFF:
+                        backlight_state = BL_STATE_DISABLING;
+                        break;
+                    default:
+                        break;
                 }
             }
             return false;  // Skip all further processing of this key
@@ -187,12 +193,17 @@ void matrix_scan_user(void) {
             }
             break;
         }
-        case BL_STATE_TURNING_OFF: {
+        case BL_STATE_TURNING_OFF:
+        case BL_STATE_DISABLING: {
             uint8_t current_value = rgb_matrix_get_val();
 
             if (current_value > 0) {
                 rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(), rgb_matrix_get_sat(), qsub8(current_value, BACKLIGHT_TRANSITION_SPEED));
-            } else {
+            } else if (backlight_state == BL_STATE_DISABLING) {
+                backlight_state = BL_STATE_DISABLED;
+                rgb_matrix_disable();
+            }
+            else {
                 backlight_state = BL_STATE_OFF;
             }
             break;
