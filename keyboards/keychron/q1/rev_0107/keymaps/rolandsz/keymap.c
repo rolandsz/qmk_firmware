@@ -63,10 +63,11 @@ typedef enum {
 
 static backlight_state_t backlight_state = BL_STATE_ON;
 static uint16_t backlight_idle_timer = 0;
+static uint16_t backlight_transition_timer = 0;
 static uint8_t backlight_desired_brightness = RGB_MATRIX_STARTUP_VAL;
 
 #define BACKLIGHT_TIMEOUT 30000
-#define BACKLIGHT_TRANSITION_SPEED 3
+#define BACKLIGHT_TRANSITION_DURATION 200
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [MAC_BASE] = LAYOUT_ansi_82(
@@ -106,11 +107,10 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (backlight_state) {
         case BL_STATE_OFF:
             backlight_state = BL_STATE_TURNING_ON;
-            break;
-        case BL_STATE_ON:
-            backlight_idle_timer = timer_read();
+            backlight_transition_timer = timer_read();
             break;
         default:
+            backlight_idle_timer = timer_read();
             break;
     }
 
@@ -156,11 +156,13 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 switch (backlight_state) {
                     case BL_STATE_DISABLED:
                         backlight_state = BL_STATE_TURNING_ON;
+                        backlight_transition_timer = timer_read();
                         rgb_matrix_enable();
                         break;
                     case BL_STATE_ON:
                     case BL_STATE_OFF:
                         backlight_state = BL_STATE_DISABLING;
+                        backlight_transition_timer = timer_read();
                         break;
                     default:
                         break;
@@ -172,14 +174,27 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
 }
 
+bool progress_transition(uint8_t from, uint8_t to) {
+    uint16_t elapsed_time = timer_elapsed(backlight_transition_timer);
+
+    if (elapsed_time <= BACKLIGHT_TRANSITION_DURATION) {
+        fract8 frac = (elapsed_time / (float)BACKLIGHT_TRANSITION_DURATION) * 255;
+        uint8_t val = lerp8by8(from, to, frac);
+
+        rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(),
+                                   rgb_matrix_get_sat(),
+                                   val);
+
+        return true;
+    }
+
+    return false;
+}
+
 void matrix_scan_user(void) {
     switch (backlight_state) {
         case BL_STATE_TURNING_ON: {
-            uint8_t current_value = rgb_matrix_get_val();
-
-            if (current_value < backlight_desired_brightness) {
-                rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(), rgb_matrix_get_sat(), qadd8(current_value, BACKLIGHT_TRANSITION_SPEED));
-            } else {
+            if (!progress_transition(0, backlight_desired_brightness)) {
                 backlight_state = BL_STATE_ON;
                 backlight_idle_timer = timer_read();
             }
@@ -190,21 +205,19 @@ void matrix_scan_user(void) {
 
             if (timer_elapsed(backlight_idle_timer) > BACKLIGHT_TIMEOUT) {
                 backlight_state = BL_STATE_TURNING_OFF;
+                backlight_transition_timer = timer_read();
             }
             break;
         }
         case BL_STATE_TURNING_OFF:
         case BL_STATE_DISABLING: {
-            uint8_t current_value = rgb_matrix_get_val();
-
-            if (current_value > 0) {
-                rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(), rgb_matrix_get_sat(), qsub8(current_value, BACKLIGHT_TRANSITION_SPEED));
-            } else if (backlight_state == BL_STATE_DISABLING) {
-                backlight_state = BL_STATE_DISABLED;
-                rgb_matrix_disable();
-            }
-            else {
-                backlight_state = BL_STATE_OFF;
+            if (!progress_transition(backlight_desired_brightness, 0)) {
+                if (backlight_state == BL_STATE_DISABLING) {
+                    backlight_state = BL_STATE_DISABLED;
+                    rgb_matrix_disable();
+                } else {
+                    backlight_state = BL_STATE_OFF;
+                }
             }
             break;
         }
