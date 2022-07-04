@@ -240,3 +240,9 @@ void matrix_scan_user(void) {
             break;
     }
 }
+
+void rgb_matrix_indicators_user(void) {
+    if (host_keyboard_led_state().caps_lock) {
+        rgb_matrix_set_color(CAPS_LOCK_LED_INDEX, 0, 0, 255);
+    }
+}
