@@ -174,21 +174,38 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
 }
 
+void post_process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (backlight_state == BL_STATE_ON) {
+        switch (keycode) {
+            case RGB_VAI:
+            case RGB_VAD:
+                backlight_desired_brightness = rgb_matrix_get_val();
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 bool progress_transition(uint8_t from, uint8_t to) {
     uint16_t elapsed_time = timer_elapsed(backlight_transition_timer);
 
-    if (elapsed_time <= BACKLIGHT_TRANSITION_DURATION) {
-        fract8 frac = (elapsed_time / (float)BACKLIGHT_TRANSITION_DURATION) * 255;
-        uint8_t val = lerp8by8(from, to, frac);
+    float frac = elapsed_time / (float)BACKLIGHT_TRANSITION_DURATION;
 
+    if (frac >= 1.0f) {
         rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(),
                                    rgb_matrix_get_sat(),
-                                   val);
-
-        return true;
+                                   to);
+        return false;
     }
 
-    return false;
+    uint8_t val = lerp8by8(from, to, frac * 255);
+
+    rgb_matrix_sethsv_noeeprom(rgb_matrix_get_hue(),
+                               rgb_matrix_get_sat(),
+                               val);
+
+    return true;
 }
 
 void matrix_scan_user(void) {
@@ -201,8 +218,6 @@ void matrix_scan_user(void) {
             break;
         }
         case BL_STATE_ON: {
-            backlight_desired_brightness = rgb_matrix_get_val();
-
             if (timer_elapsed(backlight_idle_timer) > BACKLIGHT_TIMEOUT) {
                 backlight_state = BL_STATE_TURNING_OFF;
                 backlight_transition_timer = timer_read();
