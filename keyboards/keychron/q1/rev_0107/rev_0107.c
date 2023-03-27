@@ -162,17 +162,11 @@ led_config_t g_led_config = {
 bool encoder_update_kb(uint8_t index, bool clockwise) {
     if (!encoder_update_user(index, clockwise)) { return false; }
     if (index == 0) {
-        register_code(KC_LSFT);
-        register_code(KC_LALT);
-
         if (clockwise) {
             tap_code_delay(KC_VOLU, 10);
         } else {
             tap_code_delay(KC_VOLD, 10);
         }
-
-        unregister_code(KC_LSFT);
-        unregister_code(KC_LALT);
     }
     return true;
 }

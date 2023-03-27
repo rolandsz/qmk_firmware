@@ -17,12 +17,12 @@
 #include QMK_KEYBOARD_H
 #include <lib/lib8tion/lib8tion.h>
 
-enum layers{
+typedef enum layers {
     MAC_BASE,
     MAC_FN,
     WIN_BASE,
     WIN_FN
-};
+} layers_t;
 
 enum custom_keycodes {
     KC_MISSION_CONTROL = SAFE_RANGE,
@@ -65,6 +65,7 @@ static backlight_state_t backlight_state = BL_STATE_ON;
 static uint16_t backlight_idle_timer = 0;
 static uint16_t backlight_transition_timer = 0;
 static uint8_t backlight_desired_brightness = RGB_MATRIX_STARTUP_VAL;
+static layers_t current_default_layer = MAC_BASE;
 
 #define BACKLIGHT_TIMEOUT 30000
 #define BACKLIGHT_TRANSITION_DURATION 200
@@ -245,4 +246,26 @@ void rgb_matrix_indicators_user(void) {
     if (host_keyboard_led_state().caps_lock) {
         rgb_matrix_set_color(CAPS_LOCK_LED_INDEX, 0, 0, 255);
     }
+}
+
+uint32_t default_layer_state_set_user(layer_state_t state) {
+    current_default_layer = biton32(state);
+    return state;
+}
+
+bool encoder_update_user(uint8_t index, bool clockwise) {
+    register_code(KC_LSFT);
+
+    if (current_default_layer == MAC_BASE) {
+        register_code(KC_LALT);
+    }
+
+    tap_code_delay(clockwise ? KC_VOLU : KC_VOLD, 10);
+
+    if (current_default_layer == MAC_BASE) {
+        unregister_code(KC_LALT);
+    }
+
+    unregister_code(KC_LSFT);
+    return false;
 }
